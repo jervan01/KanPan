@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "KanPan 主窗口权限：核心功能 + 向行情接口发起 HTTP 请求",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*" },
+        { "url": "https://*:*" }
+      ]
+    }
+  ]
+}
