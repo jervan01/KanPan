@@ -1,0 +1,23 @@
+[package]
+name = "kanpan"
+version = "0.1.0"
+description = "KanPan - A-share market viewer (Tencent quotes)"
+edition = "2021"
+
+[lib]
+name = "kanpan_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
