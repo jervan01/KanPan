@@ -1,0 +1,123 @@
+name: Build KanPan APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: "目标架构（aarch64 = 绝大多数现代手机；all = 通用包，体积更大）"
+        default: aarch64
+        type: choice
+        options: [aarch64, armv7, x86_64, all]
+  push:
+    tags: ["v*"]
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: 26.1.10909125
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # GitHub 的 Ubuntu 镜像已自带 Android SDK（ANDROID_HOME），直接用其 sdkmanager 装 NDK 即可
+      - name: Install Android SDK / NDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          echo "sdkmanager=$SDKM"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platform-tools" "platforms;android-34" "platforms;android-35" \
+            "build-tools;34.0.0" "ndk;${NDK_VERSION}"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # 用 cargo 版 CLI：Gradle 打包阶段会回调 CLI，npm 全局版在这里找不到路径
+      - name: Install Tauri CLI
+        run: command -v cargo-tauri >/dev/null || cargo install tauri-cli --version "^2" --locked
+
+      - name: Generate icons
+        run: cargo tauri icon app-icon.png
+
+      - name: Init Android project
+        run: cargo tauri android init --ci
+
+      - name: Dark window background / system bars
+        run: |
+          f=$(find src-tauri/gen/android -name themes.xml -path "*res/values/*" | head -1 || true)
+          if [ -n "$f" ]; then
+            python3 - "$f" <<'EOF'
+          import sys, re
+          p = sys.argv[1]
+          s = open(p, encoding="utf-8").read()
+          add = ('    <item name="android:windowBackground">#0d1015</item>\n'
+                 '    <item name="android:statusBarColor">#0d1015</item>\n'
+                 '    <item name="android:navigationBarColor">#0d1015</item>\n')
+          if "windowBackground" not in s:
+              s = re.sub(r"(</style>)", add + r"\1", s, count=1)
+              open(p, "w", encoding="utf-8").write(s)
+          print("patched", p)
+          EOF
+          fi
+
+      - name: Build APK
+        run: |
+          case "${{ inputs.abi || 'aarch64' }}" in
+            all) TARGETS="" ;;
+            *)   TARGETS="--target ${{ inputs.abi || 'aarch64' }}" ;;
+          esac
+          cargo tauri android build --apk --ci $TARGETS
+
+      - name: Restore signing key cache
+        uses: actions/cache@v4
+        with:
+          path: ~/kanpan.keystore
+          key: kanpan-keystore-v1
+
+      - name: Sign APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -e
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$HOME/kanpan.keystore"; PASS="$KS_PASS"
+          else
+            PASS="kanpan123"
+            [ -f "$HOME/kanpan.keystore" ] || keytool -genkeypair -keystore "$HOME/kanpan.keystore" \
+              -alias kanpan -keyalg RSA -keysize 2048 -validity 36500 \
+              -storepass "$PASS" -keypass "$PASS" -dname "CN=KanPan"
+          fi
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          SRC=$(find src-tauri/gen/android -path "*outputs/apk*" -name "*.apk" | grep -i unsigned | head -1 || true)
+          [ -n "$SRC" ] || SRC=$(find src-tauri/gen/android -path "*outputs/apk*" -name "*.apk" | head -1)
+          echo "source apk: $SRC"
+          "$BT/zipalign" -p -f 4 "$SRC" aligned.apk
+          "$BT/apksigner" sign --ks "$HOME/kanpan.keystore" --ks-key-alias kanpan \
+            --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out KanPan.apk aligned.apk
+          "$BT/apksigner" verify KanPan.apk
+          ls -lh KanPan.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KanPan-apk
+          path: KanPan.apk
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: KanPan.apk
