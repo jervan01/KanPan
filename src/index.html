@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0d1015">
+<title>KanPan</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand"><b>KanPan</b><span id="mkt" class="mkt"></span></div>
+    <div class="grow"></div>
+    <button class="icon-btn" data-act="search" aria-label="搜索添加"><span data-icon="search"></span></button>
+    <button class="icon-btn" id="btnRefresh" data-act="refresh" aria-label="刷新"><span data-icon="refresh"></span></button>
+    <button class="icon-btn" id="btnEdit" data-act="edit" aria-label="编辑自选"><span data-icon="edit"></span></button>
+    <button class="icon-btn" data-act="settings" aria-label="设置"><span data-icon="gear"></span></button>
+  </header>
+  <div id="sub"></div>
+  <div id="thead">
+    <button class="th name" data-sort="name">名称/代码<i></i></button>
+    <button class="th px" data-sort="price">现价<i></i></button>
+    <button class="th pc" data-sort="pct">涨跌幅<i></i></button>
+  </div>
+  <main id="list"></main>
+  <div id="sheets"></div>
+  <div id="toast"></div>
+</div>
+<script src="data.js"></script>
+<script src="chart.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
